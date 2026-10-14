@@ -262,6 +262,17 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 	async def stream_source(self) -> str | None:
 		"""Provide an authenticated loopback FLV source for legacy doorbells."""
 		if self._web_rtc_provider == "simplisafe":
+			# Legacy cameras may sleep until the system-wide wakeup command.
+			try:
+				await self._simplisafe._api.async_request(
+					"post",
+					f"ss3/subscriptions/{self._system.system_id}/camera-wakeup",
+					url_base="https://app-hub.prd.aser.simplisafe.com/v1",
+					json={"wakeAll": True},
+					headers={"Host": "app-hub.prd.aser.simplisafe.com"},
+				)
+			except (RequestError, TypeError) as err:
+				_LOGGER.warning("Legacy camera wake request failed for %s: %s", self.entity_id, type(err).__name__)
 			return legacy_stream_source(self._device.serial, self._simplisafe._api)
 		return None
 
