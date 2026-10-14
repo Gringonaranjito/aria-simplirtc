@@ -234,6 +234,7 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 		try:
 			payload = await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
 				"get", path, url_base=WEBRTC_URL_BASE,
+				headers={"Host": "app-hub.prd.aser.simplisafe.com"},
 			)
 		except RequestError as err:
 			cause = err.__cause__
@@ -251,6 +252,7 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 				"get",
 				f"cameras/{physical_serial}/{self._system.system_id}/live-view",
 				url_base=WEBRTC_URL_BASE,
+				headers={"Host": "app-hub.prd.aser.simplisafe.com"},
 			)
 		return TypeAdapter(response_type).validate_python(payload)
 
