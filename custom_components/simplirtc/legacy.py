@@ -11,7 +11,7 @@ import secrets
 from typing import TYPE_CHECKING
 
 from aiohttp import ClientError, ClientTimeout, web
-from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.http import HomeAssistantView, KEY_HASS
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 if TYPE_CHECKING:
@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 ROUTE = "/api/simplirtc/legacy/{camera_id}/{secret}"
 # This is a local-only source consumed by Home Assistant's FFmpeg worker.
-SOURCE_BASE = "http://127.0.0.1:8123"
 _CAMERAS: dict[str, tuple[str, object]] = {}
 _LOCK = asyncio.Lock()
 
@@ -45,7 +44,7 @@ class LegacyDoorbellView(HomeAssistantView):
             raise web.HTTPServiceUnavailable()
 
         upstream_url = f"https://media.simplisafe.com/v1/{camera_id}/flv?x=1280&audioEncoding=AAC"
-        session = async_get_clientsession(request.app["hass"])
+        session = async_get_clientsession(request.app[KEY_HASS])
         try:
             async with session.get(
                 upstream_url,
@@ -76,8 +75,8 @@ def register_legacy_view(hass: HomeAssistant) -> None:
     hass.data["simplirtc_legacy_view_registered"] = True
 
 
-def legacy_stream_source(camera_id: str, api: object) -> str:
+def legacy_stream_source(hass: HomeAssistant, camera_id: str, api: object) -> str:
     """Create a fresh unguessable local stream URL for the active camera."""
     secret = secrets.token_urlsafe(32)
     _CAMERAS[camera_id] = (secret, api)
-    return f"{SOURCE_BASE}/api/simplirtc/legacy/{camera_id}/{secret}"
+    return f"http://127.0.0.1:{hass.http.server_port}/api/simplirtc/legacy/{camera_id}/{secret}"
