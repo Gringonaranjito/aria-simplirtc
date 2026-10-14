@@ -276,7 +276,7 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 				)
 			except (RequestError, TypeError) as err:
 				_LOGGER.warning("Legacy camera wake request failed for %s: %s", self.entity_id, type(err).__name__)
-			return legacy_stream_source(self._device.serial, self._simplisafe._api)
+			return legacy_stream_source(self.hass, self._device.serial, self._simplisafe._api)
 		return None
 
 	@property
