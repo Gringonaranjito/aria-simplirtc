@@ -38,6 +38,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .legacy import legacy_stream_source, register_legacy_view
 from .kinesis import KinesisSession
 from .livekit import LiveKitSession
 from .protobufs.livekit_rtc_pb2 import ICEServer as LiveKitIceServer
@@ -59,6 +60,7 @@ async def async_setup_entry(
 ) -> None:
 	"""Set up a SimpliSafe Camera."""
 	simplisafe = entry.runtime_data
+	register_legacy_view(hass)
 
 	cameras: list[SimpliSafeCamera] = []
 
@@ -143,6 +145,9 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 			key="live_view",
 		)
 		CameraEntity.__init__(self)
+		# Legacy FLV cameras must advertise HLS rather than native WebRTC.
+		if self._web_rtc_provider == "simplisafe":
+			self._supports_native_async_webrtc = False
 
 		self._attr_unique_id = f"{super().unique_id}-camera"
 		self._attr_supported_features |= CameraEntityFeature.STREAM
@@ -255,6 +260,24 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 				headers={"Host": "app-hub.prd.aser.simplisafe.com"},
 			)
 		return TypeAdapter(response_type).validate_python(payload)
+
+	@override
+	async def stream_source(self) -> str | None:
+		"""Provide an authenticated loopback FLV source for legacy doorbells."""
+		if self._web_rtc_provider == "simplisafe":
+			# Legacy cameras may sleep until the system-wide wakeup command.
+			try:
+				await self._simplisafe._api.async_request(
+					"post",
+					f"ss3/subscriptions/{self._system.system_id}/camera-wakeup",
+					url_base="https://app-hub.prd.aser.simplisafe.com/v1",
+					json={"wakeAll": True},
+					headers={"Host": "app-hub.prd.aser.simplisafe.com"},
+				)
+			except (RequestError, TypeError) as err:
+				_LOGGER.warning("Legacy camera wake request failed for %s: %s", self.entity_id, type(err).__name__)
+			return legacy_stream_source(self.hass, self._device.serial, self._simplisafe._api)
+		return None
 
 	@property
 	def _web_rtc_provider(self) -> str | None:
