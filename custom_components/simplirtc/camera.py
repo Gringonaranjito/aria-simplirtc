@@ -8,6 +8,9 @@ import functools
 import logging
 from typing import TypeVar, override
 
+from aiohttp import ClientResponseError
+from simplipy.errors import RequestError
+
 from pydantic import Field, TypeAdapter
 from pydantic.dataclasses import dataclass
 from simplipy.device.camera import Camera
@@ -45,6 +48,7 @@ from .webrtc import (
 
 _LOGGER = logging.getLogger(__name__)
 WEBRTC_URL_BASE = "https://app-hub.prd.aser.simplisafe.com/v2"
+WEBRTC_V1_URL_BASE = "https://app-hub.prd.aser.simplisafe.com/v1"
 UNUSED_WEBRTC_SESSION_TTL = 30
 _StreamResponseT = TypeVar("_StreamResponseT")
 
@@ -225,12 +229,26 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 		return serials
 
 	async def _create_stream(self, response_type: type[_StreamResponseT]) -> _StreamResponseT:
-		return TypeAdapter(response_type).validate_python(
-			await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
-				"get", f"cameras/{self._device.serial}/{self._system.system_id}/live-view",
-				url_base=WEBRTC_URL_BASE,
+		"""Try the legacy API only if the v2 live-view endpoint returns HTTP 404."""
+		path = f"cameras/{self._device.serial}/{self._system.system_id}/live-view"
+		try:
+			payload = await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
+				"get", path, url_base=WEBRTC_URL_BASE,
 			)
-		)
+		except RequestError as err:
+			# simplipy wraps aiohttp HTTP failures in RequestError.
+			# Do not retry authentication failures or other HTTP errors.
+			cause = err.__cause__
+			if not isinstance(cause, ClientResponseError) or cause.status != 404:
+				raise
+			_LOGGER.warning(
+				"SimpliSafe live-view v2 returned 404 for %s; testing v1 fallback",
+				self.entity_id,
+			)
+			payload = await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
+				"get", path, url_base=WEBRTC_V1_URL_BASE,
+			)
+		return TypeAdapter(response_type).validate_python(payload)
 
 	@property
 	def _web_rtc_provider(self) -> str | None:
