@@ -145,6 +145,9 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 			key="live_view",
 		)
 		CameraEntity.__init__(self)
+		# Legacy FLV cameras must advertise HLS rather than native WebRTC.
+		if self._web_rtc_provider == "simplisafe":
+			self._supports_native_async_webrtc = False
 
 		self._attr_unique_id = f"{super().unique_id}-camera"
 		self._attr_supported_features |= CameraEntityFeature.STREAM
