@@ -38,6 +38,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .legacy import legacy_stream_source, register_legacy_view
 from .kinesis import KinesisSession
 from .livekit import LiveKitSession
 from .protobufs.livekit_rtc_pb2 import ICEServer as LiveKitIceServer
@@ -59,6 +60,7 @@ async def async_setup_entry(
 ) -> None:
 	"""Set up a SimpliSafe Camera."""
 	simplisafe = entry.runtime_data
+	register_legacy_view(hass)
 
 	cameras: list[SimpliSafeCamera] = []
 
@@ -255,6 +257,13 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 				headers={"Host": "app-hub.prd.aser.simplisafe.com"},
 			)
 		return TypeAdapter(response_type).validate_python(payload)
+
+	@override
+	async def stream_source(self) -> str | None:
+		"""Provide an authenticated loopback FLV source for legacy doorbells."""
+		if self._web_rtc_provider == "simplisafe":
+			return legacy_stream_source(self._device.serial, self._simplisafe._api)
+		return None
 
 	@property
 	def _web_rtc_provider(self) -> str | None:
