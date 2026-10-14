@@ -43,7 +43,7 @@ class LegacyDoorbellView(HomeAssistantView):
         if not isinstance(bearer, str) or not bearer:
             raise web.HTTPServiceUnavailable()
 
-        upstream_url = f"https://media.simplisafe.com/v1/{camera_id}/flv?x=1280&audioEncoding=AAC"
+        upstream_url = f"https://media.simplisafe.com/v1/{camera_id}/flv?x=640&audioEncoding=AAC"
         session = async_get_clientsession(request.app[KEY_HASS])
         try:
             async with session.get(
