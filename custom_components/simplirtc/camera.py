@@ -48,7 +48,6 @@ from .webrtc import (
 
 _LOGGER = logging.getLogger(__name__)
 WEBRTC_URL_BASE = "https://app-hub.prd.aser.simplisafe.com/v2"
-WEBRTC_V1_URL_BASE = "https://app-hub.prd.aser.simplisafe.com/v1"
 UNUSED_WEBRTC_SESSION_TTL = 30
 _StreamResponseT = TypeVar("_StreamResponseT")
 
@@ -229,24 +228,29 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 		return serials
 
 	async def _create_stream(self, response_type: type[_StreamResponseT]) -> _StreamResponseT:
-		"""Try the legacy API only if the v2 live-view endpoint returns HTTP 404."""
-		path = f"cameras/{self._device.serial}/{self._system.system_id}/live-view"
+		"""Compare UUID and physical serial on the v2 live-view endpoint."""
+		camera_id = self._device.serial
+		path = f"cameras/{camera_id}/{self._system.system_id}/live-view"
 		try:
 			payload = await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
 				"get", path, url_base=WEBRTC_URL_BASE,
 			)
 		except RequestError as err:
-			# simplipy wraps aiohttp HTTP failures in RequestError.
-			# Do not retry authentication failures or other HTTP errors.
 			cause = err.__cause__
 			if not isinstance(cause, ClientResponseError) or cause.status != 404:
 				raise
+			camera_data = self._system.camera_data.get(camera_id)
+			physical_serial = camera_data.get("serial") if isinstance(camera_data, Mapping) else None
+			if not isinstance(physical_serial, str) or not physical_serial or physical_serial == camera_id:
+				raise
 			_LOGGER.warning(
-				"SimpliSafe live-view v2 returned 404 for %s; testing v1 fallback",
+				"SimpliSafe live-view v2 returned 404 for %s using UUID; testing distinct device serial",
 				self.entity_id,
 			)
 			payload = await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
-				"get", path, url_base=WEBRTC_V1_URL_BASE,
+				"get",
+				f"cameras/{physical_serial}/{self._system.system_id}/live-view",
+				url_base=WEBRTC_URL_BASE,
 			)
 		return TypeAdapter(response_type).validate_python(payload)
 
