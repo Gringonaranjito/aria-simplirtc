@@ -8,6 +8,9 @@ import functools
 import logging
 from typing import TypeVar, override
 
+from aiohttp import ClientResponseError
+from simplipy.errors import RequestError
+
 from pydantic import Field, TypeAdapter
 from pydantic.dataclasses import dataclass
 from simplipy.device.camera import Camera
@@ -225,12 +228,33 @@ class SimpliSafeCamera(  # pyright: ignore[reportUnsafeMultipleInheritance]
 		return serials
 
 	async def _create_stream(self, response_type: type[_StreamResponseT]) -> _StreamResponseT:
-		return TypeAdapter(response_type).validate_python(
-			await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
-				"get", f"cameras/{self._device.serial}/{self._system.system_id}/live-view",
-				url_base=WEBRTC_URL_BASE,
+		"""Compare UUID and physical serial on the v2 live-view endpoint."""
+		camera_id = self._device.serial
+		path = f"cameras/{camera_id}/{self._system.system_id}/live-view"
+		try:
+			payload = await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
+				"get", path, url_base=WEBRTC_URL_BASE,
+				headers={"Host": "app-hub.prd.aser.simplisafe.com"},
 			)
-		)
+		except RequestError as err:
+			cause = err.__cause__
+			if not isinstance(cause, ClientResponseError) or cause.status != 404:
+				raise
+			camera_data = self._system.camera_data.get(camera_id)
+			physical_serial = camera_data.get("serial") if isinstance(camera_data, Mapping) else None
+			if not isinstance(physical_serial, str) or not physical_serial or physical_serial == camera_id:
+				raise
+			_LOGGER.warning(
+				"SimpliSafe live-view v2 returned 404 for %s using UUID; testing distinct device serial",
+				self.entity_id,
+			)
+			payload = await self._simplisafe._api.async_request(  # pyright: ignore[reportPrivateUsage]
+				"get",
+				f"cameras/{physical_serial}/{self._system.system_id}/live-view",
+				url_base=WEBRTC_URL_BASE,
+				headers={"Host": "app-hub.prd.aser.simplisafe.com"},
+			)
+		return TypeAdapter(response_type).validate_python(payload)
 
 	@property
 	def _web_rtc_provider(self) -> str | None:
